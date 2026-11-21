@@ -63,3 +63,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT ?? 4000);
   app.listen(port, () => console.log(`jd-match-api listening on :${port}`));
 }
+
+export default app;
