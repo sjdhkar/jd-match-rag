@@ -1,0 +1,16 @@
+# Render Blueprint: deploys the Node.js API on the free plan.
+# The free plan sleeps after ~15 minutes idle, so the first request can take up to a minute.
+services:
+  - type: web
+    name: jd-match-api
+    runtime: node
+    plan: free
+    rootDir: api
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: CORS_ORIGIN
+        value: "*"

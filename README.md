@@ -68,6 +68,14 @@ To use your own resume, replace `api/data/resume.md` (markdown, `#` headings per
 
 `npm test` in `api/` covers chunking, skill detection, BM25 ranking, scoring and the offline fallback. GitHub Actions (`.github/workflows/ci.yml`) runs the API tests and the web typecheck and build on every push.
 
+## Deploy (free tier)
+
+**API on Render** (Blueprint included): New > Blueprint, pick this repo, apply. The API is then at `https://jd-match-api.onrender.com`. Do not set `ANTHROPIC_API_KEY` on a public demo unless you accept the usage cost; offline mode works without it.
+
+**Web on Vercel**: New Project, import this repo, set **Root Directory** to `web`, add the environment variable `NEXT_PUBLIC_API_URL` set to the Render API URL, deploy.
+
+Optionally lock the API to your site by setting `CORS_ORIGIN` to the Vercel URL on Render. The API also rate-limits each IP (30 requests per 10 minutes).
+
 ## Roadmap
 
 - Replace BM25 with embeddings for semantic retrieval
