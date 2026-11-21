@@ -64,13 +64,19 @@ To use your own resume, replace `api/data/resume.md` (markdown, `#` headings per
 }
 ```
 
+### Compare several openings
+
+`POST /api/match-batch` with `{ "jobs": [{ "id", "title", "company", "jd" }] }` (up to 10) returns each opening's score, matched skills and gaps, ranked best first, with `matches: true` at 70% or higher. In the UI, save openings under **My openings** (stored in your browser) and press **Compare all**.
+
 ## Tests and CI
 
 `npm test` in `api/` covers chunking, skill detection, BM25 ranking, scoring and the offline fallback. GitHub Actions (`.github/workflows/ci.yml`) runs the API tests and the web typecheck and build on every push.
 
 ## Deploy (free tier)
 
-**API on Render** (Blueprint included): New > Blueprint, pick this repo, apply. The API is then at `https://jd-match-api.onrender.com`. Do not set `ANTHROPIC_API_KEY` on a public demo unless you accept the usage cost; offline mode works without it.
+**Live demo:** web https://jd-match-rag.vercel.app, API https://jd-match-api.vercel.app (both on Vercel's free tier).
+
+**API on Render** (optional alternative, Blueprint included): New > Blueprint, pick this repo, apply. The API is then at `https://jd-match-api.onrender.com`. Do not set `ANTHROPIC_API_KEY` on a public demo unless you accept the usage cost; offline mode works without it.
 
 **Web on Vercel**: New Project, import this repo, set **Root Directory** to `web`, add the environment variable `NEXT_PUBLIC_API_URL` set to the Render API URL, deploy.
 
@@ -80,4 +86,5 @@ Optionally lock the API to your site by setting `CORS_ORIGIN` to the Vercel URL 
 
 - Replace BM25 with embeddings for semantic retrieval
 - Upload a resume PDF in the UI
-- Deploy the web app to Vercel and the API to Azure App Service
+- Move the API to Azure App Service
+- Sync saved openings to a database instead of browser storage

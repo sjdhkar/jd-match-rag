@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/$/, "");
 
@@ -18,6 +18,19 @@ type MatchResult = {
   mode: "llm" | "offline";
   feedback: { summary: string; strengths: string[]; gaps: string[]; resume_tweaks: string[] };
 };
+
+type Opening = { id: string; title: string; company: string; jd: string };
+type BatchRow = {
+  id: string;
+  title: string;
+  company: string;
+  score: number;
+  matches: boolean;
+  matched: string[];
+  gaps: string[];
+};
+const STORAGE_KEY = "jd-match-openings";
+const EMPTY_OPENING = { title: "", company: "", jd: "" };
 
 function ScoreRing({ score }: { score: number }) {
   const r = 40;
@@ -64,6 +77,63 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [slow, setSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [openings, setOpenings] = useState<Opening[]>([]);
+  const [draft, setDraft] = useState(EMPTY_OPENING);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [batch, setBatch] = useState<{ threshold: number; results: BatchRow[] } | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+
+  // Openings live in this browser only (localStorage), so there is no account or database.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setOpenings(JSON.parse(raw));
+    } catch {}
+  }, []);
+  function persist(next: Opening[]) {
+    setOpenings(next);
+    setBatch(null);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {}
+  }
+  const canSaveOpening = draft.title.trim().length > 0 && draft.jd.trim().length >= 40;
+  function saveOpening() {
+    if (!canSaveOpening) return;
+    const clean = { title: draft.title.trim(), company: draft.company.trim(), jd: draft.jd.trim() };
+    if (editingId) {
+      persist(openings.map((o) => (o.id === editingId ? { ...o, ...clean } : o)));
+    } else {
+      persist([...openings, { id: crypto.randomUUID(), ...clean }]);
+    }
+    setDraft(EMPTY_OPENING);
+    setEditingId(null);
+  }
+  function editOpening(o: Opening) {
+    setEditingId(o.id);
+    setDraft({ title: o.title, company: o.company, jd: o.jd });
+  }
+  async function compareAll() {
+    setBatchLoading(true);
+    setBatchError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/match-batch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobs: openings, ...(useOwn && resume.trim() ? { resume } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      setBatch(data);
+    } catch (e) {
+      setBatch(null);
+      setBatchError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+    } finally {
+      setBatchLoading(false);
+    }
+  }
 
   async function analyze() {
     setLoading(true);
@@ -139,6 +209,96 @@ export default function Home() {
         </button>
         {slow && <p className="hint">Waking up the free-tier server, the first request can take up to a minute...</p>}
         {error && <p className="error">{error}</p>}
+      </section>
+
+      <section className="panel openings">
+        <h2>My openings</h2>
+        <p className="hint">
+          Save the jobs you are tracking (kept in this browser only), then compare them all against the resume in one go.
+        </p>
+        <div className="grid2">
+          <input
+            aria-label="Job title"
+            placeholder="Job title, e.g. Senior .NET Engineer"
+            value={draft.title}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          />
+          <input
+            aria-label="Company"
+            placeholder="Company (optional)"
+            value={draft.company}
+            onChange={(e) => setDraft({ ...draft, company: e.target.value })}
+          />
+        </div>
+        <textarea
+          aria-label="Opening job description"
+          placeholder="Paste the job description (at least 40 characters)..."
+          rows={5}
+          value={draft.jd}
+          onChange={(e) => setDraft({ ...draft, jd: e.target.value })}
+        />
+        <div className="actions">
+          <button className="primary" onClick={saveOpening} disabled={!canSaveOpening}>
+            {editingId ? "Update opening" : "Add opening"}
+          </button>
+          {editingId && (
+            <button
+              className="link"
+              onClick={() => {
+                setEditingId(null);
+                setDraft(EMPTY_OPENING);
+              }}
+            >
+              Cancel edit
+            </button>
+          )}
+        </div>
+
+        {openings.length > 0 && (
+          <ul className="opening-list">
+            {openings.map((o) => (
+              <li key={o.id}>
+                <span>
+                  <strong>{o.title}</strong>
+                  {o.company && <span className="muted"> · {o.company}</span>}
+                </span>
+                <span className="actions">
+                  <button className="link" onClick={() => editOpening(o)}>
+                    Edit
+                  </button>
+                  <button className="link danger" onClick={() => persist(openings.filter((x) => x.id !== o.id))}>
+                    Delete
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <button className="primary" onClick={compareAll} disabled={batchLoading || openings.length === 0}>
+          {batchLoading ? "Comparing..." : `Compare all (${openings.length})`}
+        </button>
+        {batchError && <p className="error">{batchError}</p>}
+
+        {batch && (
+          <div className="batch">
+            <p className="hint">Ranked by match. Green means {batch.threshold}% or higher.</p>
+            {batch.results.map((r) => (
+              <article key={r.id} className={`batch-row ${r.matches ? "yes" : "no"}`}>
+                <div className="row">
+                  <strong>
+                    {r.title}
+                    {r.company && <span className="muted"> · {r.company}</span>}
+                  </strong>
+                  <span className={`pill ${r.matches ? "yes" : "no"}`}>
+                    {r.score}% {r.matches ? "match" : "weak match"}
+                  </span>
+                </div>
+                {r.gaps.length > 0 && <small className="muted">Gaps: {r.gaps.join(", ")}</small>}
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       {result && (

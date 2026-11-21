@@ -28,6 +28,15 @@ function rateLimit() {
   };
 }
 
+function pickResume(custom) {
+  if (typeof custom === "string" && custom.trim()) {
+    const text = custom.trim();
+    if (text.length < 50 || text.length > 20000) return { error: "Resume must be between 50 and 20000 characters." };
+    return { text };
+  }
+  return { text: defaultResume };
+}
+
 export const app = express();
 app.set("trust proxy", 1);
 app.use(cors({ origin: process.env.CORS_ORIGIN ?? "*" }));
@@ -46,17 +55,52 @@ app.post("/api/match", rateLimit(), async (req, res) => {
     return res.status(400).json({ error: "Job description is too long (8000 characters max)." });
   }
 
-  let resume = defaultResume;
-  if (typeof req.body?.resume === "string" && req.body.resume.trim()) {
-    resume = req.body.resume.trim();
-    if (resume.length < 50 || resume.length > 20000) {
-      return res.status(400).json({ error: "Resume must be between 50 and 20000 characters." });
-    }
-  }
+  const resume = pickResume(req.body?.resume);
+  if (resume.error) return res.status(400).json({ error: resume.error });
 
-  const analysis = analyze(jd, resume);
+  const analysis = analyze(jd, resume.text);
   const { mode, feedback } = await generateFeedback(jd, analysis);
   res.json({ ...analysis, mode, feedback });
+});
+
+const MAX_JOBS = 10;
+const MATCH_THRESHOLD = 70;
+
+/**
+ * Score several saved openings against one resume and rank them.
+ * Rule-based only (no LLM call per job) so a batch stays fast and free.
+ */
+app.post("/api/match-batch", rateLimit(), (req, res) => {
+  const jobs = req.body?.jobs;
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    return res.status(400).json({ error: "Add at least one opening." });
+  }
+  if (jobs.length > MAX_JOBS) {
+    return res.status(400).json({ error: `Compare up to ${MAX_JOBS} openings at a time.` });
+  }
+  const resume = pickResume(req.body?.resume);
+  if (resume.error) return res.status(400).json({ error: resume.error });
+
+  const results = [];
+  for (const [i, job] of jobs.entries()) {
+    const jd = typeof job?.jd === "string" ? job.jd.trim() : "";
+    if (jd.length < 40 || jd.length > 8000) {
+      return res.status(400).json({ error: `Opening ${i + 1}: description must be 40 to 8000 characters.` });
+    }
+    const a = analyze(jd, resume.text);
+    results.push({
+      id: String(job.id ?? i),
+      title: String(job.title ?? "").slice(0, 120),
+      company: String(job.company ?? "").slice(0, 120),
+      score: a.score,
+      matches: a.score >= MATCH_THRESHOLD,
+      required: a.required,
+      matched: a.matched.map((m) => m.skill),
+      gaps: a.gaps,
+    });
+  }
+  results.sort((x, y) => y.score - x.score);
+  res.json({ threshold: MATCH_THRESHOLD, results });
 });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -64,4 +108,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   app.listen(port, () => console.log(`jd-match-api listening on :${port}`));
 }
 
+// Vercel serverless entry point
 export default app;

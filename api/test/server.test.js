@@ -47,3 +47,30 @@ test("scores against a custom resume sent by the visitor", async () => {
   assert.ok(data.matched.some((m) => m.skill === "Python"));
   assert.deepEqual(data.gaps, ["Kubernetes"]);
 });
+
+test("batch endpoint ranks openings and flags matches", async () => {
+  const res = await fetch(`${base}/api/match-batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jobs: [
+        { id: "a", title: "Platform", company: "X", jd: "Need Kubernetes, Go and Terraform engineers for our platform team." },
+        { id: "b", title: "Full stack", company: "Y", jd: "Senior .NET and Angular engineer with Azure DevOps and SQL Server experience." },
+      ],
+    }),
+  });
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(data.results[0].id, "b");
+  assert.equal(data.results[0].matches, true);
+  assert.equal(data.results[1].matches, false);
+});
+
+test("batch endpoint rejects an empty list", async () => {
+  const res = await fetch(`${base}/api/match-batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jobs: [] }),
+  });
+  assert.equal(res.status, 400);
+});
